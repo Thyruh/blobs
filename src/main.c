@@ -1,124 +1,187 @@
+// TODO: Add camera following
+// TODO: Add enemy entities.
+// TODO: Split the player into two circles
+// TODO: Some shooting mechanic
+// TODO: Add size to food and grow the player accordingly
+
 #include "../include/raylib.h"
-#include "../include/helper.h"
 #include <stdbool.h>
 #include <stdint.h>
-
-typedef int8_t i8;
-typedef int16_t i16;
-typedef int32_t i32;
-typedef int64_t i64;
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef bool b32;
-
-typedef float f32;
-typedef double f64;
+#include "common.h"
+#include "colours.h"
+#include "darray.h"
 
 #define SCREEN_WIDTH 960
 #define SCREEN_HEIGHT 720
-#define PLAYER_SIZE 25
-#define PLAYER_SPEED 1
+#define INIT_PLAYER_SIZE 25
+#define PLAYER_GROWTH_FACTOR 1.025
+#define PLAYER_SPEED 10
 #define FOOD_SIZE 10
+#define FOOD_MAX 10000000
+#define FOOD_MAX_DISTANCE 6000
 
-f64 growth_factor;
+u16 width  = SCREEN_WIDTH;
+u16 height = SCREEN_HEIGHT;
 
-static inline Vector2 EntityInitialize(void) {
-   return (Vector2) {.x = (i32)(GetScreenWidth()/2), .y = (i32)(GetScreenHeight()/2)};
+// TODO: Refactor this into player/food.h
+typedef struct {
+	Vector2 pos;
+    f32 size;
+	Color colour;
+	/* Vector2 velocity; */
+	/* Vector2 target_velocity; */
+	/* Vector2 direction; */
+} Food;
+
+typedef struct {
+	Vector2 pos;
+	Vector2 velocity;
+	Vector2 direction;
+	Vector2 target_velocity;
+    f32     target_size;
+	f32     size;
+} Player;
+
+DARRAY_INIT(Food)
+
+// TODO: Give food: velocity, acceleration, mass.
+
+static inline Player PlayerInitialize(void) {
+	Player p;
+	p.pos = (Vector2) {.x = GetScreenWidth()/2, .y = GetScreenHeight()/2};
+	p.velocity = (Vector2) { 0 };
+	p.target_velocity = (Vector2) { 0 };
+	p.direction = (Vector2) { 0 };
+	p.target_size = INIT_PLAYER_SIZE;
+	p.size = INIT_PLAYER_SIZE;
+	return p;
 }
 
-static inline Vector2 EntityRandomInitialize(void) {
-   return (Vector2) {.x = GetRandomValue(FOOD_SIZE, GetScreenWidth()-FOOD_SIZE), .y = GetRandomValue(FOOD_SIZE, GetScreenHeight()-FOOD_SIZE)};
+static inline Food FoodRandomInitialize(Player* player) {
+	Vector2 direction = (Vector2) {.x = GetRandomValue(0, 1), .y = GetRandomValue(0, 1)};
+	Vector2 distance = (Vector2) {.x = GetRandomValue(player->size, FOOD_MAX_DISTANCE+player->size), .y = GetRandomValue(player->size, player->size+FOOD_MAX_DISTANCE)};
+	direction.x = direction.x ? 1 : -1;
+	direction.y = direction.y ? 1 : -1;
+	Vector2 position = (Vector2) {.x = player->pos.x + distance.x * direction.x, .y = player->pos.y + distance.y * direction.y};
+	return (Food) {.pos = position, .size = FOOD_SIZE, .colour = RANDOM_COLOUR()};
 }
 
-static inline void ClampX(Vector2* current_pos) {
-   if (current_pos->x+PLAYER_SIZE*growth_factor > GetScreenWidth()) { // -PLAYER_SIZE for a funny dangling effect
-      current_pos->x = GetScreenWidth()-PLAYER_SIZE*growth_factor;
-   }
-   else if (current_pos->x-PLAYER_SIZE*growth_factor < 0) current_pos->x = 0+PLAYER_SIZE*growth_factor; // +50
+static inline void GarbageCollector(Darray_Food* food, Player player) {
+	u32 x = player.pos.x;
+	u32 y = player.pos.y;
+	For (*food) {
+		u32 current_x = current.pos.x;
+		u32 current_y = current.pos.y;
+		if (abs(current_x - x) - player.size > FOOD_MAX_DISTANCE || abs(current_y - y) - player.size > FOOD_MAX_DISTANCE) {
+			Food_remove(food, ___);
+		}
+	}
 }
 
-static inline void ClampY(Vector2* current_pos) {
-   if (current_pos->y+PLAYER_SIZE*growth_factor > GetScreenHeight()) {
-      current_pos->y = GetScreenHeight()-PLAYER_SIZE*growth_factor;
-   }
-   else if (current_pos->y-PLAYER_SIZE*growth_factor < 0) current_pos->y = 0+PLAYER_SIZE*growth_factor;
-}
+static inline void UpdatePosition(Player* player) {
+	player->direction = (Vector2) {0, 0};
+	player->direction.y -= IsKeyDown('W');
+	player->direction.x	-= IsKeyDown('A');
+	player->direction.y += IsKeyDown('S');
+	player->direction.x += IsKeyDown('D');
 
-static inline void UpdatePositionX(Vector2* current_pos, f64 step) {
-   current_pos->x = current_pos->x+step;
-}
+	player->target_velocity.x += player->direction.x * PLAYER_SPEED;
+	player->target_velocity.y += player->direction.y * PLAYER_SPEED;
 
-static inline void UpdatePositionY(Vector2* current_pos, f64 step) {
-   current_pos->y = current_pos->y+step;
+	if (player->direction.x == 0) player->target_velocity.x *= 0.99; // Less than 0.99 for a funny effect
+	if (player->direction.y == 0) player->target_velocity.y *= 0.99w;
+
+	player->velocity.x = (player->target_velocity.x - player->velocity.x) * 0.01f;
+	player->velocity.y = (player->target_velocity.y - player->velocity.y) * 0.01f;
+
+	player->pos.x = player->pos.x + player->velocity.x;
+	player->pos.y = player->pos.y + player->velocity.y;
+	/* Clamp(&player->pos, player->size); */
 }
 
 int main(void) {
-   char food_counter_string[2]; // 999
+	SetTargetFPS(120);
+	Darray_Food food = Food_new();
+	char score_string[4] = "0"; // 256
+	char food_count_string[10] = "1000"; // 256
+	i32 food_count = 1000;
+	i32 score = 0;
+	f32 time_prev = GetTime();
+	f32 clean_timer = time_prev;
 
+	Player player = PlayerInitialize();
+	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Blobs");
+	Food_reserve(&food, food_count);
+	for (size_t i = 0; i <= food_count; i++)
+		Food_push(&food, FoodRandomInitialize(&player));
 
-   growth_factor = 1;
+	Camera2D camera = { 0 };
+	camera.target = player.pos;
+	camera.zoom = 1.0;
+	camera.rotation = 0.0;
+	camera.offset = (Vector2) {width/2, height/2};
 
-   InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "MyWindow");
+	// TODO: Add gravity to food.
+	while (!WindowShouldClose()) {
 
+		camera.target = player.pos;
 
-   Vector2 player_pos = EntityInitialize();
-   Vector2 food_pos = EntityRandomInitialize();
+		width = GetScreenWidth();
+		height = GetScreenHeight();
 
-   u8 food_counter = 0;
+		BeginDrawing();
+     		BeginMode2D(camera);
+    		ClearBackground(EGGPLANT);
+		    For (food) {
+				if (CheckCollisionCircles(player.pos, player.target_size-10, current.pos, FOOD_SIZE)) { // offsets for better visuals
+					Food_replace(&food, ___, FoodRandomInitialize(&player));
+					player.target_size = player.target_size * PLAYER_GROWTH_FACTOR;
+					score++;
+					camera.zoom /= 1.01;
+					int_to_string(score, score_string);
+					continue;
+				}
+				DrawCircleV(current.pos, FOOD_SIZE, current.colour);
+		    }
 
-   while(!WindowShouldClose()) {
-      DrawFPS(0, 0);
+    		DrawCircleV(player.pos, player.size, WHITE);
+    		DrawCircleV(player.pos, INIT_PLAYER_SIZE, YELLOW);
+     		EndMode2D();
+			DrawFPS(0, 0);
+			DrawText(score_string, width-30, 0, 20, RAYWHITE);
+			DrawText(food_count_string, 10, height-40, 20, RAYWHITE);
+		EndDrawing();
 
-      BeginDrawing();
-         DrawText(food_counter_string, SCREEN_WIDTH-30, 0, 20, RAYWHITE);
-         if (!CheckCollisionCircles(player_pos, PLAYER_SIZE*growth_factor-10, food_pos, FOOD_SIZE)) { // offsets for better visuals
-            DrawCircleV(food_pos, FOOD_SIZE, GREEN);
-         }
-         else {
-            food_pos = EntityRandomInitialize();
-            food_counter++;
-            growth_factor = growth_factor + growth_factor*0.015;
-            int_to_string(food_counter, food_counter_string);
-         }
+		if (GetTime() - time_prev > 0.01 && food.size < FOOD_MAX) {
+			time_prev = GetTime();
+			Food_push(&food, FoodRandomInitialize(&player));
+			food_count++;
+			int_to_string(food_count, food_count_string);
+		}
 
-         ClearBackground(BLACK);
-         DrawCircleV(player_pos, PLAYER_SIZE*growth_factor, WHITE);
-         DrawCircleV(player_pos, PLAYER_SIZE, BLUE);
-      EndDrawing();
+		if (GetTime() - clean_timer > 10) {
+			clean_timer = GetTime();
+			GarbageCollector(&food, player);
+		}
 
-      if(IsKeyDown('A')) {
-         UpdatePositionX(&player_pos, -PLAYER_SPEED);
-         ClampX(&player_pos);
-      }
-      else if(IsKeyDown('D')) {
-         UpdatePositionX(&player_pos, PLAYER_SPEED);
-         ClampX(&player_pos);
-      }
-      if(IsKeyDown('S')) {
-         UpdatePositionY(&player_pos, PLAYER_SPEED);
-         ClampY(&player_pos);
-      }
-      else if(IsKeyDown('W')) {
-         UpdatePositionY(&player_pos, -PLAYER_SPEED);
-         ClampY(&player_pos);
-      }
+		UpdatePosition(&player);
+		player.size += (player.target_size - player.size) * 0.01f;
 
-      if(IsKeyPressed('F')) {
-         ToggleFullscreen();
-         ClampX(&food_pos);
-         ClampY(&food_pos);
-      }
+		if (IsKeyDown('G')) {
+			player.target_size = player.target_size * 1.015;
+		}
 
-      if(IsKeyDown('Q')) {
-         CloseWindow();
-         return 0;
-      }
+		if (IsKeyPressed('F')) {
+			ToggleFullscreen();
+		}
 
-   }
+		if (IsKeyDown('Q')) {
+			CloseWindow();
+			return 0;
+		}
+	}
 
-   CloseWindow();
-   return 0;
+	Food_free(&food);
+	CloseWindow();
+	return 0;
 }

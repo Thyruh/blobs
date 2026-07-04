@@ -25,3 +25,6 @@ void int_to_string(int num, char* str) {
 }
 
 
+/* void print_vector2(Vector2* vec) { */
+/* 	printf("(%f, %f)\n", vec->x, vec->y); */
+/* } */
