@@ -24,8 +24,10 @@ void int_to_string(int num, char* str);
 	printf("%s = (%f, %f)\n", #vec, vec.x, vec.y);
 
 // Remember that inside this macro `current` is a local copy and changes to it dont actually change the state
-// TODO: Experiment with __COUNT__ macro for incremental iterator name, something like _i_ would work.
+// TODO: Experiment with __COUNTER__ macro for incremental iterator name, something like _i_ would work.
+// PS: Probably not possible. Maybe ship a different macro like: Fori(i, item) where the user supplies the variable name
+// But for now there is no need into a drilling For, so leave it as is.
 
-#define For(item) \
-	for (size_t ___ = 0; ___ < (item).size; ___++)	\
-		if (auto current = (item).node[___]; true)
+#define For(item)                                              \
+    for (size_t ___ = 0; ___ < (item).size; ++___)                  \
+        if (auto current = (item).node[___]; true)

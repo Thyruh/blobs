@@ -12,7 +12,7 @@ target_include_directories(blob PRIVATE include)
 
 # Debug / Release modes
 target_compile_options(blob PRIVATE
-    $<$<CONFIG:Debug>:-O1 -g -DDEBUG>
+    $<$<CONFIG:Debug>:-O1 -g -DDEBUG -Wall -pedantic -Werror -Wextra>
     $<$<CONFIG:Release>:-O3>
 )
 

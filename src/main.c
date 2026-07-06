@@ -57,6 +57,7 @@ static inline Player PlayerInitialize(void) {
 	return p;
 }
 
+// TODO: Verticalize this.
 static inline Food FoodRandomInitialize(Player* player) {
 	Vector2 direction = (Vector2) {.x = GetRandomValue(0, 1), .y = GetRandomValue(0, 1)};
 	Vector2 distance = (Vector2) {.x = GetRandomValue(player->size, FOOD_MAX_DISTANCE+player->size), .y = GetRandomValue(player->size, player->size+FOOD_MAX_DISTANCE)};
@@ -66,15 +67,14 @@ static inline Food FoodRandomInitialize(Player* player) {
 	return (Food) {.pos = position, .size = FOOD_SIZE, .colour = RANDOM_COLOUR()};
 }
 
-static inline void GarbageCollector(Darray_Food* food, Player player) {
+// Warning (thyruh): This function will cause pointer invalidation problems eventually, we have to think of some containerization or handles.
+static inline void GarbageCollector(Darray_Food* foods, Food* food, Player player, i32 i) {
 	u32 x = player.pos.x;
 	u32 y = player.pos.y;
-	For (*food) {
-		u32 current_x = current.pos.x;
-		u32 current_y = current.pos.y;
-		if (abs(current_x - x) - player.size > FOOD_MAX_DISTANCE || abs(current_y - y) - player.size > FOOD_MAX_DISTANCE) {
-			Food_remove(food, ___);
-		}
+	u32 current_x = food->pos.x;
+	u32 current_y = food->pos.y;
+	if (abs(current_x - x) - player.size > FOOD_MAX_DISTANCE || abs(current_y - y) - player.size > FOOD_MAX_DISTANCE) {
+		Food_remove(foods, i);
 	}
 }
 
@@ -89,14 +89,15 @@ static inline void UpdatePosition(Player* player) {
 	player->target_velocity.y += player->direction.y * PLAYER_SPEED;
 
 	if (player->direction.x == 0) player->target_velocity.x *= 0.99; // Less than 0.99 for a funny effect
-	if (player->direction.y == 0) player->target_velocity.y *= 0.99w;
+	if (player->direction.y == 0) player->target_velocity.y *= 0.99;
+
+	// Velocity is not limited.
 
 	player->velocity.x = (player->target_velocity.x - player->velocity.x) * 0.01f;
 	player->velocity.y = (player->target_velocity.y - player->velocity.y) * 0.01f;
 
 	player->pos.x = player->pos.x + player->velocity.x;
 	player->pos.y = player->pos.y + player->velocity.y;
-	/* Clamp(&player->pos, player->size); */
 }
 
 int main(void) {
@@ -107,12 +108,14 @@ int main(void) {
 	i32 food_count = 1000;
 	i32 score = 0;
 	f32 time_prev = GetTime();
-	f32 clean_timer = time_prev;
+	/* f32 clean_timer = time_prev; */
 
 	Player player = PlayerInitialize();
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Blobs");
+
 	Food_reserve(&food, food_count);
-	for (size_t i = 0; i <= food_count; i++)
+	// Пример где мой #run из forgelang был бы полезен
+	for (size_t _ = 0; _ <= food_count; _++)
 		Food_push(&food, FoodRandomInitialize(&player));
 
 	Camera2D camera = { 0 };
@@ -124,6 +127,7 @@ int main(void) {
 	// TODO: Add gravity to food.
 	while (!WindowShouldClose()) {
 
+		// TODO: Make turning animations for the camera
 		camera.target = player.pos;
 
 		width = GetScreenWidth();
@@ -132,7 +136,8 @@ int main(void) {
 		BeginDrawing();
      		BeginMode2D(camera);
     		ClearBackground(EGGPLANT);
-		    For (food) {
+		    For (food) { // Note (thyruh): Perhaps having one food checking loop is much faster
+				GarbageCollector(&food, &current, player, ___); // Optimization? TODO: Remove the pointer to current
 				if (CheckCollisionCircles(player.pos, player.target_size-10, current.pos, FOOD_SIZE)) { // offsets for better visuals
 					Food_replace(&food, ___, FoodRandomInitialize(&player));
 					player.target_size = player.target_size * PLAYER_GROWTH_FACTOR;
@@ -148,7 +153,7 @@ int main(void) {
     		DrawCircleV(player.pos, INIT_PLAYER_SIZE, YELLOW);
      		EndMode2D();
 			DrawFPS(0, 0);
-			DrawText(score_string, width-30, 0, 20, RAYWHITE);
+			DrawText(score_string, width-80, 0, 20, RAYWHITE);
 			DrawText(food_count_string, 10, height-40, 20, RAYWHITE);
 		EndDrawing();
 
@@ -159,13 +164,19 @@ int main(void) {
 			int_to_string(food_count, food_count_string);
 		}
 
-		if (GetTime() - clean_timer > 10) {
-			clean_timer = GetTime();
-			GarbageCollector(&food, player);
-		}
+		/* Note (thyruh):
+		  Gone for optimization reasons, though, not benchmarked for conclusive evidence.
+		  Previous version of Garbagecollector() used to iterate the whole array of food every 10 seconds
+		  and had a lot of work on each call, now it may be more efficient.
+		*/
+
+		/* if (GetTime() - clean_timer > 10) { */
+		/* 	clean_timer = GetTime(); */
+		/* 	GarbageCollector(&food, player); */
+		/* } */
 
 		UpdatePosition(&player);
-		player.size += (player.target_size - player.size) * 0.01f;
+		player.size += (player.target_size - player.size) * 0.1f;
 
 		if (IsKeyDown('G')) {
 			player.target_size = player.target_size * 1.015;
